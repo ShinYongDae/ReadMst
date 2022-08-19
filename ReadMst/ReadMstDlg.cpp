@@ -155,16 +155,6 @@ HCURSOR CReadMstDlg::OnQueryDragIcon()
 
 
 
-void CReadMstDlg::OnBnClickedButton1()
-{
-	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
-	CString sPath;
-
-	if (!FileBrowse(sPath))
-		return;
-	GetDlgItem(IDC_STATIC_PATH)->SetWindowText(sPath);
-}
-
 BOOL CReadMstDlg::FileBrowse(CString& sPath)
 {
 	sPath = _T("");
@@ -184,7 +174,7 @@ BOOL CReadMstDlg::FileBrowse(CString& sPath)
 	int nAoiMachineNum = 0;
 
 	// File Open Filter 
-	static TCHAR BASED_CODE szFilter[] = _T("All Files (*.*)|*.*||");
+	static TCHAR BASED_CODE szFilter[] = _T("Mst Files (*.mst)|*.mst|All Files (*.*)|*.*||");
 
 	// CFileDialog 
 	CFileDialog dlg(TRUE, NULL, NULL, OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT, szFilter, NULL);
@@ -208,4 +198,161 @@ BOOL CReadMstDlg::FileBrowse(CString& sPath)
 	}
 
 	return FALSE;
+}
+
+BOOL CReadMstDlg::LoadStripRgnFromCam(CString sPath, CString& sData)
+{
+	CString sName[MAX_PATH] = 
+	{
+		_T("nMode"),									// 0 : Full Mode, 1 : Strip Mode
+		_T("nMSwath"), 									// 모터가 움직일 회수.
+		_T("NodeNumX"), _T("NodeNumY"),					// 각 축당 셀 갯수
+		_T("PanelPixelX"), _T("PanelPixelY"), 			// 전체 판넬 이미지의 크기		
+		_T("OvrXPix"), _T("OvrYPix"),					// 각 축으로 오버랩되는 부분의 크기		 
+		_T("ProcSizeX"), _T("ProcSizeY"),				// 각 축당 셀의 크기	 
+		_T("nCell"),									// 전체 셀 갯수
+		_T("nIPU"),										// AOI의 IPU 갯수
+		_T("CameraValidPixel"), 						// 실제 검사하기 위해 사용되는 이미지의 X축 크기
+		_T("nScanMarginX"), _T("nScanMarginY"), 		// 실제 사용되는 이미지에 각 축방향으로 더해지는 여분 이미지의 크기 Ex) nScanMarginX = (8192 ? CameraValidPixel)/2
+		_T("nRegionX"), _T("nRegionY"), 				// Reserved Data
+		_T("nCellDivideX"), _T("nCellDivideY"), 		// 한 스트립당 각 축 방향 셀 갯수
+		_T("nCADPinPosPixX"), _T("nCADPinPosPixY"), 	// Pin Position x, y
+		_T("nProcMarginX"), _T("nProcMarginY"),			// Reserved Data
+		_T("StPosX"),									// 각 셀의 왼쪽 윗부분의 X 위치
+		_T("StPosY"),									// 각 셀의 왼쪽 윗부분의 Y 위치
+		_T("EdPosX"),									// 각 셀의 오른쪽 아래부분의 X 위치
+		_T("EdPosY"), 									// 각 셀의 오른쪽 아래부분의 Y 위치
+		_T("XSwathPixPos")								// 모터가 움직이기 시작하는 위치
+	};
+
+	CFile file;
+	int Rsize, RsizeStPosX, RsizeStPosY, RsizeEdPosX, RsizeEdPosY, RsizeXSwathPixPos;
+	int SizeI, SizeIXSwathPixPos, i, nData, nN;
+	//char FileNCam[200];
+	TCHAR FileNCam[200];
+
+	nN = 0;
+	sData = _T("");
+	CString str;
+
+	//strcpy(FileNCam, sPath);
+	wsprintf(FileNCam, TEXT("%s"), sPath);
+
+	if (!file.Open(FileNCam, CFile::modeRead))
+	{
+		if (!file.Open(FileNCam, CFile::modeRead))
+		{
+			return(FALSE);
+		}
+	}
+
+	REGION_STRIP* pCellRgn = new REGION_STRIP;
+
+	SizeI = sizeof(int) * RGN_STRIP_VARIABLE_NUM;
+	Rsize = file.Read((void *)pCellRgn, SizeI);
+
+	if (Rsize != SizeI)
+	{
+		AfxMessageBox(_T("MST File is incorrected."), MB_ICONSTOP | MB_OK);
+		return(FALSE);
+	}
+
+	for (i = 0; i < RGN_STRIP_VARIABLE_NUM; i++)
+	{
+		//SizeI = sizeof(int);
+		//Rsize = file.Read((void *)pCellRgn, SizeI);
+		nData = *((&pCellRgn->nMode) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData); nN++;
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n");
+
+	int nCell = pCellRgn->NodeNumX * pCellRgn->NodeNumY;
+	SizeI = sizeof(int) * nCell;
+	RsizeStPosX = file.Read((void *)&pCellRgn->StPosX, SizeI);
+	RsizeStPosY = file.Read((void *)&pCellRgn->StPosY, SizeI);
+	RsizeEdPosX = file.Read((void *)&pCellRgn->EdPosX, SizeI);
+	RsizeEdPosY = file.Read((void *)&pCellRgn->EdPosY, SizeI);
+
+	for (i = 0; i < nCell; i++)
+	{
+		nData = *((pCellRgn->StPosX) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData);
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n"); nN++;
+
+	for (i = 0; i < nCell; i++)
+	{
+		nData = *((pCellRgn->StPosY) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData);
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n"); nN++;
+
+	for (i = 0; i < nCell; i++)
+	{
+		nData = *((pCellRgn->EdPosX) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData);
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n"); nN++;
+
+	for (i = 0; i < nCell; i++)
+	{
+		nData = *((pCellRgn->EdPosY) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData);
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n"); nN++;
+
+
+	SizeIXSwathPixPos = sizeof(int) * pCellRgn->nMSwath;
+	RsizeXSwathPixPos = file.Read((void *)&pCellRgn->XSwathPixPos, SizeIXSwathPixPos);
+
+	if (RsizeStPosX != SizeI && RsizeStPosY != SizeI && RsizeEdPosX != SizeI && RsizeEdPosY != SizeI && RsizeXSwathPixPos != SizeIXSwathPixPos)
+	{
+		AfxMessageBox(_T("MST File is incorrected."),MB_ICONSTOP|MB_OK);
+		return(FALSE);
+	}
+	for (i = 0; i < pCellRgn->nMSwath; i++)
+	{
+		nData = *((pCellRgn->XSwathPixPos) + i);
+		//str.Format(_T("%d"), nData);
+		str.Format(_T("%s: %d"), sName[nN], nData);
+		sData += str;
+		sData += _T("\r\n");
+	}
+	sData += _T("\r\n");
+
+
+	if (pCellRgn)
+		delete pCellRgn;
+
+	return(TRUE);
+}
+
+void CReadMstDlg::OnBnClickedButton1()
+{
+	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
+	CString sPath;
+
+	if (!FileBrowse(sPath))
+		return;
+	GetDlgItem(IDC_STATIC_PATH)->SetWindowText(sPath);
+
+	CString sData;
+	if(!LoadStripRgnFromCam(sPath, sData))
+		AfxMessageBox(_T("LoadStripRgnFromCam failed!"));
+	GetDlgItem(IDC_EDIT1)->SetWindowText(sData);
 }
